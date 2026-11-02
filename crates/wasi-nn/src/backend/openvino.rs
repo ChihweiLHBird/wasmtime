@@ -80,8 +80,8 @@ impl BackendGraph for OpenvinoGraph {
     fn init_execution_context(&self) -> Result<ExecutionContext, BackendError> {
         let mut compiled_model = self.0.lock().unwrap();
         // `openvino` 0.11.1+ zero-initializes the request's numeric input and
-        // output tensors here; earlier versions left them uninitialized, which let a
-        // guest read stale host memory by calling `get_output` before
+        // output tensors here; earlier versions left them uninitialized, which
+        // let a guest read stale host memory by calling `get_output` before
         // `compute` (https://github.com/bytecodealliance/wasmtime/issues/14437).
         let infer_request = compiled_model.create_infer_request()?;
         let box_: Box<dyn BackendExecutionContext> =
@@ -179,29 +179,6 @@ impl BackendExecutionContext for OpenvinoExecutionContext {
     }
 }
 
-/// Return the number of bytes a tensor with the given dimensions and element
-/// type occupies, or an error if that number overflows `usize`.
-fn expected_byte_len(tensor: &Tensor) -> Result<usize, BackendError> {
-    let element_size: usize = match tensor.ty {
-        TensorType::U8 => 1,
-        TensorType::Fp16 | TensorType::Bf16 => 2,
-        TensorType::Fp32 | TensorType::I32 => 4,
-        TensorType::Fp64 | TensorType::I64 => 8,
-    };
-    tensor
-        .dimensions
-        .iter()
-        .try_fold(element_size, |count, &dim| {
-            count.checked_mul(usize::try_from(dim).ok()?)
-        })
-        .ok_or_else(|| {
-            BackendError::BackendAccess(wasmtime::format_err!(
-                "tensor dimensions are too large: {:?}",
-                tensor.dimensions
-            ))
-        })
-}
-
 /// Copy a guest-provided tensor into a newly created OpenVINO tensor.
 ///
 /// OpenVINO allocates a tensor's storage as soon as the tensor is created and,
@@ -210,15 +187,7 @@ fn expected_byte_len(tensor: &Tensor) -> Result<usize, BackendError> {
 /// could make the host allocate and touch an arbitrarily large buffer that is
 /// rejected right afterwards.
 fn to_ov_tensor(tensor: &Tensor) -> Result<OvTensor, BackendError> {
-    let expected = expected_byte_len(tensor)?;
-    if tensor.data.len() != expected {
-        return Err(BackendError::BackendAccess(wasmtime::format_err!(
-            "input tensor has {} bytes of data but dimensions {:?} of type {:?} need {expected} bytes",
-            tensor.data.len(),
-            tensor.dimensions,
-            tensor.ty
-        )));
-    }
+    super::check_data_length(tensor)?;
     let precision = tensor.ty.into();
     let dimensions = tensor
         .dimensions
@@ -228,15 +197,34 @@ fn to_ov_tensor(tensor: &Tensor) -> Result<OvTensor, BackendError> {
     let shape = Shape::new(&dimensions)?;
     let mut new_tensor = OvTensor::new(precision, &shape)?;
     let buffer = new_tensor.get_raw_data_mut()?;
+    // The data length was checked above, so this only fails if OpenVINO sizes
+    // the element type differently than `bytes_per_element` does.
     if buffer.len() != tensor.data.len() {
         return Err(BackendError::BackendAccess(wasmtime::format_err!(
-            "input tensor has {} bytes of data but its dimensions and type need {} bytes",
-            tensor.data.len(),
-            buffer.len()
+            "OpenVINO allocated {} bytes for a tensor that needs {} bytes",
+            buffer.len(),
+            tensor.data.len()
         )));
     }
     buffer.copy_from_slice(&tensor.data);
     Ok(new_tensor)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// No OpenVINO library is loaded in unit tests, so reaching `Shape::new`
+    /// or `OvTensor::new` panics; invalid inputs must be rejected before that.
+    #[test]
+    fn to_ov_tensor_rejects_bad_sizes_before_allocating() {
+        let short = Tensor::new(vec![1, 3, 224, 224], TensorType::Fp32, vec![0; 602111]);
+        assert!(to_ov_tensor(&short).is_err());
+        let huge = Tensor::new(vec![1 << 30, 1], TensorType::Fp32, vec![0; 4]);
+        assert!(to_ov_tensor(&huge).is_err());
+        let overflow = Tensor::new(vec![u32::MAX; 4], TensorType::Fp32, vec![]);
+        assert!(to_ov_tensor(&overflow).is_err());
+    }
 }
 
 impl From<InferenceError> for BackendError {

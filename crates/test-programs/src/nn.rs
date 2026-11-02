@@ -85,8 +85,8 @@ pub mod wit {
 pub mod witx {
     use anyhow::Result;
     use std::time::Instant;
-    pub use wasi_nn::{ExecutionTarget, GraphEncoding, TensorType};
-    use wasi_nn::{Graph, GraphBuilder};
+    pub use wasi_nn::{ExecutionTarget, Graph, GraphEncoding, TensorType};
+    use wasi_nn::GraphBuilder;
 
     /// Load a wasi-nn graph from a set of bytes.
     pub fn load(

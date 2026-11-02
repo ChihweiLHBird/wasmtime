@@ -1,7 +1,8 @@
 //! Check that the OpenVINO backend never hands the guest uninitialized host
 //! memory through tensors that inference has not written yet:
 //!
-//! 1. `get_output` before `compute` must either fail or return all zeros.
+//! 1. `get_output` before `compute` must either fail or return the full-size,
+//!    zero-filled output tensor.
 //! 2. `compute` without `set_input` must behave exactly like `compute` with an
 //!    all-zero input tensor.
 //!
@@ -9,8 +10,7 @@
 
 use anyhow::{Context, Result, ensure};
 use std::fs;
-use test_programs::nn::witx::{self, TensorType};
-use wasi_nn::Graph;
+use test_programs::nn::witx::{self, Graph, TensorType};
 
 /// The byte length of the `[1, 3, 224, 224]` `f32` input of MobileNet.
 const INPUT_BYTES: usize = 1 * 3 * 224 * 224 * 4;

@@ -41,5 +41,15 @@ pub fn main() -> Result<()> {
         "expected an error for dimensions whose byte size overflows"
     );
     println!("[nn] rejected overflowing dimensions");
+
+    // A huge tensor with far too little data must be rejected; the host checks
+    // the length before creating the tensor, so this never allocates 4 GiB.
+    let tensor = Tensor::new(&[1 << 30, 1], TensorType::Fp32, &[0u8; 4]);
+    let result = context.compute(vec![("input".to_string(), tensor)]);
+    ensure!(
+        result.is_err(),
+        "expected an error for a 4 GiB tensor with 4 bytes of data"
+    );
+    println!("[nn] rejected a 4 GiB tensor with 4 bytes of data");
     Ok(())
 }
