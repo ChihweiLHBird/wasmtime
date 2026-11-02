@@ -141,7 +141,6 @@ pub struct NamedTensor {
 }
 
 /// Return the size in bytes of one element of type `ty`.
-#[allow(dead_code, reason = "not used by every backend feature combination")]
 pub(crate) fn bytes_per_element(ty: TensorType) -> usize {
     match ty {
         TensorType::U8 => 1,
@@ -153,7 +152,6 @@ pub(crate) fn bytes_per_element(ty: TensorType) -> usize {
 
 /// Return the number of bytes in a tensor of type `ty` with the given
 /// dimensions, or an error if that number overflows `usize`.
-#[allow(dead_code, reason = "not used by every backend feature combination")]
 pub(crate) fn byte_count(dimensions: &[u32], ty: TensorType) -> wasmtime::Result<usize> {
     dimensions
         .iter()
@@ -166,10 +164,11 @@ pub(crate) fn byte_count(dimensions: &[u32], ty: TensorType) -> wasmtime::Result
 /// Check that a guest-provided tensor carries exactly the number of bytes its
 /// dimensions and element type call for.
 ///
-/// Backends call this before handing the data to their ML library, because
-/// the libraries either copy as many bytes as the dimensions imply without
-/// looking at the data length or allocate (and zero-fill) the whole tensor
-/// up front.
+/// Backends call this before handing the data to their ML library: on a
+/// mismatch the ONNX backend's `bytes_to_f32_vec` would panic on a trailing
+/// partial element, and the OpenVINO backend would first allocate and
+/// zero-fill a tensor of the guest-chosen size. (The PyTorch backend keeps an
+/// equivalent inline check.)
 #[allow(dead_code, reason = "not used by every backend feature combination")]
 pub(crate) fn check_data_length(tensor: &Tensor) -> wasmtime::Result<()> {
     let expected = byte_count(&tensor.dimensions, tensor.ty)?;

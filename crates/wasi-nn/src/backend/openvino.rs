@@ -210,23 +210,6 @@ fn to_ov_tensor(tensor: &Tensor) -> Result<OvTensor, BackendError> {
     Ok(new_tensor)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// No OpenVINO library is loaded in unit tests, so reaching `Shape::new`
-    /// or `OvTensor::new` panics; invalid inputs must be rejected before that.
-    #[test]
-    fn to_ov_tensor_rejects_bad_sizes_before_allocating() {
-        let short = Tensor::new(vec![1, 3, 224, 224], TensorType::Fp32, vec![0; 602111]);
-        assert!(to_ov_tensor(&short).is_err());
-        let huge = Tensor::new(vec![1 << 30, 1], TensorType::Fp32, vec![0; 4]);
-        assert!(to_ov_tensor(&huge).is_err());
-        let overflow = Tensor::new(vec![u32::MAX; 4], TensorType::Fp32, vec![]);
-        assert!(to_ov_tensor(&overflow).is_err());
-    }
-}
-
 impl From<InferenceError> for BackendError {
     fn from(e: InferenceError) -> Self {
         BackendError::BackendAccess(wasmtime::Error::new(e))
@@ -285,5 +268,22 @@ impl TryFrom<ElementType> for TensorType {
                 element_type.to_string(),
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// No OpenVINO library is loaded in unit tests, so reaching `Shape::new`
+    /// or `OvTensor::new` panics; invalid inputs must be rejected before that.
+    #[test]
+    fn to_ov_tensor_rejects_bad_sizes_before_allocating() {
+        let short = Tensor::new(vec![1, 3, 224, 224], TensorType::Fp32, vec![0; 602111]);
+        assert!(to_ov_tensor(&short).is_err());
+        let huge = Tensor::new(vec![1 << 30, 1], TensorType::Fp32, vec![0; 4]);
+        assert!(to_ov_tensor(&huge).is_err());
+        let overflow = Tensor::new(vec![u32::MAX; 4], TensorType::Fp32, vec![]);
+        assert!(to_ov_tensor(&overflow).is_err());
     }
 }
