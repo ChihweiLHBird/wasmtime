@@ -79,8 +79,8 @@ unsafe impl Sync for OpenvinoGraph {}
 impl BackendGraph for OpenvinoGraph {
     fn init_execution_context(&self) -> Result<ExecutionContext, BackendError> {
         let mut compiled_model = self.0.lock().unwrap();
-        // `openvino` 0.11.1+ zero-initializes the request's input and output
-        // tensors here; earlier versions left them uninitialized, which let a
+        // `openvino` 0.11.1+ zero-initializes the request's numeric input and
+        // output tensors here; earlier versions left them uninitialized, which let a
         // guest read stale host memory by calling `get_output` before
         // `compute` (https://github.com/bytecodealliance/wasmtime/issues/14437).
         let infer_request = compiled_model.create_infer_request()?;
@@ -94,24 +94,7 @@ struct OpenvinoExecutionContext(openvino::InferRequest, Arc<Mutex<openvino::Comp
 
 impl BackendExecutionContext for OpenvinoExecutionContext {
     fn set_input(&mut self, id: Id, tensor: &Tensor) -> Result<(), BackendError> {
-        // Construct the tensor.
-        let precision = tensor.ty.into();
-        let dimensions = tensor
-            .dimensions
-            .iter()
-            .map(|&d| d as i64)
-            .collect::<Vec<_>>();
-        let shape = Shape::new(&dimensions)?;
-        let mut new_tensor = OvTensor::new(precision, &shape)?;
-        let buffer = new_tensor.get_raw_data_mut()?;
-        if buffer.len() != tensor.data.len() {
-            return Err(BackendError::BackendAccess(wasmtime::format_err!(
-                "input tensor has {} bytes of data but its dimensions and type need {} bytes",
-                tensor.data.len(),
-                buffer.len()
-            )));
-        }
-        buffer.copy_from_slice(&tensor.data);
+        let new_tensor = to_ov_tensor(tensor)?;
         // Assign the tensor to the request.
         match id {
             Id::Index(i) => self.0.set_input_tensor_by_index(i as usize, &new_tensor)?,
@@ -129,25 +112,7 @@ impl BackendExecutionContext for OpenvinoExecutionContext {
             Some(inputs) => {
                 // Process all named inputs
                 for input in &inputs {
-                    let precision = input.tensor.ty.into();
-                    let dimensions = input
-                        .tensor
-                        .dimensions
-                        .iter()
-                        .map(|&d| d as i64)
-                        .collect::<Vec<_>>();
-                    let shape = Shape::new(&dimensions)?;
-                    let mut new_tensor = OvTensor::new(precision, &shape)?;
-                    let buffer = new_tensor.get_raw_data_mut()?;
-                    if buffer.len() != input.tensor.data.len() {
-                        return Err(BackendError::BackendAccess(wasmtime::format_err!(
-                            "input tensor has {} bytes of data but its dimensions and type need {} bytes",
-                            input.tensor.data.len(),
-                            buffer.len()
-                        )));
-                    }
-                    buffer.copy_from_slice(&input.tensor.data);
-
+                    let new_tensor = to_ov_tensor(&input.tensor)?;
                     self.0.set_tensor(&input.name, &new_tensor)?;
                 }
 
@@ -212,6 +177,66 @@ impl BackendExecutionContext for OpenvinoExecutionContext {
             data,
         })
     }
+}
+
+/// Return the number of bytes a tensor with the given dimensions and element
+/// type occupies, or an error if that number overflows `usize`.
+fn expected_byte_len(tensor: &Tensor) -> Result<usize, BackendError> {
+    let element_size: usize = match tensor.ty {
+        TensorType::U8 => 1,
+        TensorType::Fp16 | TensorType::Bf16 => 2,
+        TensorType::Fp32 | TensorType::I32 => 4,
+        TensorType::Fp64 | TensorType::I64 => 8,
+    };
+    tensor
+        .dimensions
+        .iter()
+        .try_fold(element_size, |count, &dim| {
+            count.checked_mul(usize::try_from(dim).ok()?)
+        })
+        .ok_or_else(|| {
+            BackendError::BackendAccess(wasmtime::format_err!(
+                "tensor dimensions are too large: {:?}",
+                tensor.dimensions
+            ))
+        })
+}
+
+/// Copy a guest-provided tensor into a newly created OpenVINO tensor.
+///
+/// OpenVINO allocates a tensor's storage as soon as the tensor is created and,
+/// since `openvino` 0.11.1, zero-fills it, so the guest's data length is
+/// checked against the dimensions *before* the tensor exists. Otherwise a guest
+/// could make the host allocate and touch an arbitrarily large buffer that is
+/// rejected right afterwards.
+fn to_ov_tensor(tensor: &Tensor) -> Result<OvTensor, BackendError> {
+    let expected = expected_byte_len(tensor)?;
+    if tensor.data.len() != expected {
+        return Err(BackendError::BackendAccess(wasmtime::format_err!(
+            "input tensor has {} bytes of data but dimensions {:?} of type {:?} need {expected} bytes",
+            tensor.data.len(),
+            tensor.dimensions,
+            tensor.ty
+        )));
+    }
+    let precision = tensor.ty.into();
+    let dimensions = tensor
+        .dimensions
+        .iter()
+        .map(|&d| d as i64)
+        .collect::<Vec<_>>();
+    let shape = Shape::new(&dimensions)?;
+    let mut new_tensor = OvTensor::new(precision, &shape)?;
+    let buffer = new_tensor.get_raw_data_mut()?;
+    if buffer.len() != tensor.data.len() {
+        return Err(BackendError::BackendAccess(wasmtime::format_err!(
+            "input tensor has {} bytes of data but its dimensions and type need {} bytes",
+            tensor.data.len(),
+            buffer.len()
+        )));
+    }
+    buffer.copy_from_slice(&tensor.data);
+    Ok(new_tensor)
 }
 
 impl From<InferenceError> for BackendError {

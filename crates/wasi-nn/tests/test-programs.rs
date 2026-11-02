@@ -80,10 +80,13 @@ fn check_test_program(name: &str) -> (fn() -> Result<()>, IgnoreCheck) {
             nn_witx_image_classification_openvino_named,
             IgnoreCheck::for_openvino(),
         ),
-        "nn_witx_output_before_compute_openvino" => (
-            nn_witx_output_before_compute_openvino,
+        "nn_witx_uninitialized_tensors_openvino" => (
+            nn_witx_uninitialized_tensors_openvino,
             IgnoreCheck::for_openvino(),
         ),
+        "nn_witx_invalid_input_openvino" => {
+            (nn_witx_invalid_input_openvino, IgnoreCheck::for_openvino())
+        }
         "nn_witx_image_classification_onnx" => {
             (nn_witx_image_classification_onnx, IgnoreCheck::for_onnx())
         }
@@ -105,6 +108,9 @@ fn check_test_program(name: &str) -> (fn() -> Result<()>, IgnoreCheck) {
             nn_wit_image_classification_openvino_named,
             IgnoreCheck::for_openvino(),
         ),
+        "nn_wit_invalid_input_openvino" => {
+            (nn_wit_invalid_input_openvino, IgnoreCheck::for_openvino())
+        }
         "nn_wit_image_classification_onnx" => {
             (nn_wit_image_classification_onnx, IgnoreCheck::for_onnx())
         }
@@ -135,11 +141,18 @@ fn nn_witx_image_classification_openvino_named() -> Result<()> {
     exec::witx::run(NN_WITX_IMAGE_CLASSIFICATION_OPENVINO_NAMED, backend, true)
 }
 
-fn nn_witx_output_before_compute_openvino() -> Result<()> {
+fn nn_witx_uninitialized_tensors_openvino() -> Result<()> {
     check::openvino::is_installed()?;
     check::openvino::are_artifacts_available()?;
     let backend = Backend::from(backend::openvino::OpenvinoBackend::default());
-    exec::witx::run(NN_WITX_OUTPUT_BEFORE_COMPUTE_OPENVINO, backend, false)
+    exec::witx::run(NN_WITX_UNINITIALIZED_TENSORS_OPENVINO, backend, false)
+}
+
+fn nn_witx_invalid_input_openvino() -> Result<()> {
+    check::openvino::is_installed()?;
+    check::openvino::are_artifacts_available()?;
+    let backend = Backend::from(backend::openvino::OpenvinoBackend::default());
+    exec::witx::run(NN_WITX_INVALID_INPUT_OPENVINO, backend, false)
 }
 
 #[cfg(feature = "onnx")]
@@ -207,6 +220,13 @@ fn nn_wit_image_classification_openvino_named() -> Result<()> {
         backend,
         true,
     )
+}
+
+fn nn_wit_invalid_input_openvino() -> Result<()> {
+    check::openvino::is_installed()?;
+    check::openvino::are_artifacts_available()?;
+    let backend = Backend::from(backend::openvino::OpenvinoBackend::default());
+    exec::wit::run(NN_WIT_INVALID_INPUT_OPENVINO_COMPONENT, backend, false)
 }
 
 #[cfg(feature = "onnx")]
