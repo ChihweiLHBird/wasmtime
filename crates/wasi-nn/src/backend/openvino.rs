@@ -79,6 +79,10 @@ unsafe impl Sync for OpenvinoGraph {}
 impl BackendGraph for OpenvinoGraph {
     fn init_execution_context(&self) -> Result<ExecutionContext, BackendError> {
         let mut compiled_model = self.0.lock().unwrap();
+        // `openvino` 0.11.1+ zero-initializes the request's input and output
+        // tensors here; earlier versions left them uninitialized, which let a
+        // guest read stale host memory by calling `get_output` before
+        // `compute` (https://github.com/bytecodealliance/wasmtime/issues/14437).
         let infer_request = compiled_model.create_infer_request()?;
         let box_: Box<dyn BackendExecutionContext> =
             Box::new(OpenvinoExecutionContext(infer_request, self.0.clone()));

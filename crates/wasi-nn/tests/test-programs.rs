@@ -80,6 +80,10 @@ fn check_test_program(name: &str) -> (fn() -> Result<()>, IgnoreCheck) {
             nn_witx_image_classification_openvino_named,
             IgnoreCheck::for_openvino(),
         ),
+        "nn_witx_output_before_compute_openvino" => (
+            nn_witx_output_before_compute_openvino,
+            IgnoreCheck::for_openvino(),
+        ),
         "nn_witx_image_classification_onnx" => {
             (nn_witx_image_classification_onnx, IgnoreCheck::for_onnx())
         }
@@ -129,6 +133,13 @@ fn nn_witx_image_classification_openvino_named() -> Result<()> {
     check::openvino::are_artifacts_available()?;
     let backend = Backend::from(backend::openvino::OpenvinoBackend::default());
     exec::witx::run(NN_WITX_IMAGE_CLASSIFICATION_OPENVINO_NAMED, backend, true)
+}
+
+fn nn_witx_output_before_compute_openvino() -> Result<()> {
+    check::openvino::is_installed()?;
+    check::openvino::are_artifacts_available()?;
+    let backend = Backend::from(backend::openvino::OpenvinoBackend::default());
+    exec::witx::run(NN_WITX_OUTPUT_BEFORE_COMPUTE_OPENVINO, backend, false)
 }
 
 #[cfg(feature = "onnx")]
